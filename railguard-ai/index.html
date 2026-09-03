@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="RailGuard AI: governed rail incident and passenger recovery copilot portfolio MVP by Faith Wright." />
+  <title>RailGuard AI | Governed Rail Operations</title>
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-block">
+        <div class="brand-mark">RG</div>
+        <div>
+          <div class="brand-name">RailGuard AI</div>
+          <div class="brand-sub">Operations + Governance</div>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Primary navigation">
+        <button class="nav-item active" data-view="command"><span>◉</span><span>Command Centre</span></button>
+        <button class="nav-item" data-view="incidents"><span>⚠</span><span>Incident Queue</span></button>
+        <button class="nav-item" data-view="decisions"><span>✓</span><span>Decision Queue</span><span class="nav-badge" id="decisionBadge">3</span></button>
+        <button class="nav-item" data-view="comms"><span>✦</span><span>Passenger Comms</span></button>
+        <button class="nav-item" data-view="evidence"><span>▤</span><span>Evidence Vault</span></button>
+        <button class="nav-item" data-view="governance"><span>⌘</span><span>Governance</span></button>
+        <button class="nav-item" data-view="scenario"><span>◇</span><span>Scenario Lab</span></button>
+      </nav>
+
+      <div class="side-footer">
+        <div class="safe-chip"><span class="status-dot"></span> Simulation mode</div>
+        <div class="watermark-mini">Faith Wright Portfolio</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn mobile-only" aria-label="Toggle menu">☰</button>
+        <div>
+          <div class="eyebrow">Rail AI decision support</div>
+          <h1 id="pageTitle">Command Centre</h1>
+        </div>
+        <div class="top-actions">
+          <div class="clock" id="clock">--:--:--</div>
+          <button class="secondary-btn" id="exportAllBtn">Export evidence</button>
+        </div>
+      </header>
+
+      <section id="view-command" class="view active">
+        <div class="hero-grid">
+          <article class="panel hero-panel">
+            <div class="panel-head">
+              <div>
+                <div class="eyebrow">Live simulation</div>
+                <h2>Network disruption decision support</h2>
+              </div>
+              <div class="impact-pill">HIGH IMPACT</div>
+            </div>
+            <p class="lead">RailGuard AI correlates operational signals, estimates passenger impact, proposes recovery actions and blocks execution until the accountable human controller decides.</p>
+            <div class="principle-banner"><strong>AI recommends.</strong> Humans control railway decisions.</div>
+            <div class="hero-meta">
+              <div><span>Correlation ID</span><strong>RG-2026-0903-001</strong></div>
+              <div><span>Detected</span><strong>08:17</strong></div>
+              <div><span>Control</span><strong>RG-HITL-001</strong></div>
+              <div><span>Status</span><strong id="primaryStatus">Awaiting approval</strong></div>
+            </div>
+          </article>
+
+          <article class="panel confidence-panel">
+            <div class="eyebrow">AI confidence</div>
+            <div class="confidence-ring" aria-label="92 percent confidence"><span>92%</span></div>
+            <p>Incident classification confidence</p>
+            <div class="explainability"><span>Explainability</span><strong>Rationale captured</strong></div>
+          </article>
+        </div>
+
+        <div class="kpi-grid" id="kpiGrid"></div>
+
+        <div class="two-col">
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Network picture</div><h3>Incident pressure by corridor</h3></div><div class="legend"><span class="l1"></span> Current <span class="l2"></span> Baseline</div></div>
+            <div id="corridorChart" class="chart-area"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Operational assurance</div><h3>Governance control health</h3></div><div class="health-score">94%</div></div>
+            <div id="controlHealth" class="control-list"></div>
+          </article>
+        </div>
+
+        <div class="two-col">
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Priority</div><h3>Decision queue</h3></div><button class="link-btn" data-jump="decisions">Open queue →</button></div>
+            <div id="decisionPreview"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Auditability</div><h3>Latest evidence events</h3></div><button class="link-btn" data-jump="evidence">View vault →</button></div>
+            <div id="evidencePreview" class="timeline"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-incidents" class="view">
+        <div class="section-toolbar">
+          <div><div class="eyebrow">Operational triage</div><h2>Incident Queue</h2></div>
+          <div class="filters"><select id="incidentSeverityFilter"><option value="all">All severity</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option></select><input id="incidentSearch" placeholder="Search incident, corridor or ID" /></div>
+        </div>
+        <div class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Incident</th><th>Severity</th><th>Passengers</th><th>Confidence</th><th>Status</th><th>Owner</th><th></th></tr></thead><tbody id="incidentTable"></tbody></table></div></div>
+      </section>
+
+      <section id="view-decisions" class="view">
+        <div class="section-toolbar"><div><div class="eyebrow">Human in the loop</div><h2>Decision Queue</h2></div><div class="safe-chip"><span class="status-dot amber"></span> Auto-execution blocked</div></div>
+        <div id="decisionCards" class="decision-grid"></div>
+      </section>
+
+      <section id="view-comms" class="view">
+        <div class="section-toolbar"><div><div class="eyebrow">Passenger recovery</div><h2>Passenger Communications</h2></div><button class="secondary-btn" id="regenMessageBtn">Regenerate draft</button></div>
+        <div class="two-col">
+          <article class="panel"><div class="eyebrow">Approved facts only</div><h3>Message Composer</h3><textarea id="messageDraft" rows="10"></textarea><div class="comms-actions"><button class="primary-btn" id="approveMessageBtn">Approve draft</button><button class="secondary-btn" id="holdMessageBtn">Hold message</button></div><div class="guardrail-note">Passenger messages cannot be released unless the incident decision is approved by a human controller.</div></article>
+          <article class="panel"><div class="eyebrow">Communication quality</div><h3>Pre-release checks</h3><div id="commsChecks" class="control-list"></div><div class="mini-card"><span>Accessibility language</span><strong>Included</strong></div><div class="mini-card"><span>Unsupported ETA claims</span><strong>None detected</strong></div></article>
+        </div>
+      </section>
+
+      <section id="view-evidence" class="view">
+        <div class="section-toolbar"><div><div class="eyebrow">Assurance trail</div><h2>Evidence Vault</h2></div><button class="secondary-btn" id="exportEvidenceBtn">Download JSON</button></div>
+        <div class="evidence-summary" id="evidenceSummary"></div>
+        <div class="panel"><div id="fullTimeline" class="timeline large"></div></div>
+      </section>
+
+      <section id="view-governance" class="view">
+        <div class="section-toolbar"><div><div class="eyebrow">Responsible AI</div><h2>Governance & Model Risk</h2></div><div class="health-score">94% control health</div></div>
+        <div class="governance-grid" id="governanceGrid"></div>
+        <article class="panel governance-principle"><div class="eyebrow">Non-negotiable control</div><h3>Human accountability stays visible</h3><p>The model may classify, summarise and recommend. The accountable rail operator decides, authorises, overrides and owns the outcome. Every recommendation, approval and verification step is retained against a correlation ID.</p></article>
+      </section>
+
+      <section id="view-scenario" class="view">
+        <div class="section-toolbar"><div><div class="eyebrow">Portfolio demo</div><h2>Scenario Lab</h2></div><button class="secondary-btn" id="resetScenarioBtn">Reset simulation</button></div>
+        <div class="two-col">
+          <article class="panel"><h3>Create simulated disruption</h3><label>Incident type<select id="scenarioType"><option>Signalling failure</option><option>Points failure</option><option>Train fault</option><option>Severe weather</option><option>Passenger incident</option></select></label><label>Affected services<input type="range" min="2" max="40" value="14" id="serviceRange"><span id="serviceRangeValue">14</span></label><label>Estimated passengers<input type="range" min="100" max="5000" step="100" value="1200" id="passengerRange"><span id="passengerRangeValue">1,200</span></label><label>Accessibility impact<select id="accessImpact"><option>Low</option><option selected>Medium</option><option>High</option></select></label><button class="primary-btn wide" id="runScenarioBtn">Run governed assessment</button></article>
+          <article class="panel"><div class="eyebrow">Assessment result</div><h3 id="scenarioResultTitle">Awaiting simulation</h3><div id="scenarioResult" class="scenario-result"><p>Adjust the controls and run the assessment to generate a governed decision-support recommendation.</p></div></article>
+        </div>
+      </section>
+
+      <footer class="footer"><div>RailGuard AI · Portfolio prototype by Faith Wright</div><div>Simulated data only · No live railway systems or confidential operator information</div></footer>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" id="modalClose">×</button>
+      <div class="eyebrow">Human decision required</div>
+      <h2 id="modalTitle">Review recommendation</h2>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="src/data.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
