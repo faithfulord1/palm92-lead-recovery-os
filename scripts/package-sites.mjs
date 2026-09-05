@@ -1,11 +1,18 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, rm, writeFile } from "node:fs/promises";
 
 await rm("dist", { recursive: true, force: true });
 await mkdir("dist/server", { recursive: true });
 await mkdir("dist/client", { recursive: true });
 await mkdir("dist/.openai", { recursive: true });
 await cp("out", "dist/client", { recursive: true });
-await cp(".openai/hosting.json", "dist/.openai/hosting.json");
+
+try {
+  await access(".openai/hosting.json");
+  await cp(".openai/hosting.json", "dist/.openai/hosting.json");
+} catch {
+  // ChatGPT Sites provides this file in its hosting environment. Standard CI,
+  // Vercel and local builds should still succeed when it is not present.
+}
 
 const worker = `
 export default {
