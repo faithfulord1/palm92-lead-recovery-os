@@ -1,10 +1,14 @@
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Home from "./page";
 
 describe("PALM 92 missed-call recovery experiment", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    delete (document as Document & {modelContext?: unknown}).modelContext;
+  });
 
   it("turns Daniel's high-value missed call into a human-approved appointment with consistent metrics", () => {
     vi.useFakeTimers();
@@ -71,6 +75,30 @@ describe("PALM 92 missed-call recovery experiment", () => {
     expect(summary).toMatchObject({totalLeads:62,appointmentsBooked:23,recoveredRevenue:7050});
     expect((summary.audit_trail as Array<unknown>).length).toBeGreaterThan(0);
   });
+
+  it("invalidates a prepared booking when its qualification evidence changes", async () => {
+    vi.useRealTimers();
+    const tools: RegisteredTool[] = [];
+    Object.defineProperty(document, "modelContext", { configurable: true, value: { registerTool: vi.fn(async (tool) => { tools.push(tool); }), unregisterTool: vi.fn() } });
+    render(<Home />);
+    await waitFor(() => expect(tools).toHaveLength(7));
+
+    const recover = tools.find(tool => tool.name === "recover_lead")!;
+    const prepare = tools.find(tool => tool.name === "prepare_appointment")!;
+    await act(async () => { await recover.execute({lead_id:"lead-daniel",customer_response:"Yes, please arrange the kitchen quote.",requirement:"Kitchen quote"}); });
+    await act(async () => { await prepare.execute({lead_id:"lead-daniel",slot:"slot-today-1600"}); });
+    expect(screen.getByText(/yes, please arrange the kitchen quote/i)).toBeTruthy();
+    expect(screen.getByText("Kitchen quote", {selector:"span"})).toBeTruthy();
+
+    await act(async () => { await recover.execute({lead_id:"lead-daniel",customer_response:"I need to change the work requested.",requirement:"Bathroom quote"}); });
+    fireEvent.click(screen.getByRole("button", { name: /yes, approve demo booking/i }));
+
+    expect(screen.getByText(/approval expired because the reviewed evidence or slot changed/i)).toBeTruthy();
+    expect(screen.queryByText("£9,450")).toBeNull();
+    const summary = await tools.find(tool => tool.name === "get_recovery_summary")!.execute({});
+    expect(summary).toMatchObject({appointmentsBooked:23,recoveredRevenue:7050});
+  });
 });
 
 type LeadResult = { id: string; value: number };
+type RegisteredTool = {name:string;execute:(input:Record<string,string>)=>Promise<Record<string,unknown>>};
