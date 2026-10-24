@@ -14,6 +14,8 @@ type Lead = {
 };
 type AppointmentSlot = { id: string; label: string; status: "available" | "booked"; leadId?: string };
 type AuditEvent = { at: string; action: string; leadId: string; detail: string };
+type QualificationEvidence = { customerResponse: string; requirement: string; recordedAt: string };
+type PendingApproval = QualificationEvidence & { leadId: string; slotId: string; slotLabel: string };
 type WebMCPDiagnostics = { support: "checking" | "supported" | "not-detected"; registered: number; failure: string | null };
 type ModelContext = {
   registerTool: (tool: unknown) => void | Promise<void>;
@@ -82,11 +84,12 @@ export default function Home() {
   const [demoResponse, setDemoResponse] = useState("");
   const [demoRequirement, setDemoRequirement] = useState("");
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [webMCPDiagnostics, setWebMCPDiagnostics] = useState<WebMCPDiagnostics>({support:"checking",registered:0,failure:null});
   const leadsRef = useRef(leads);
   const webMCPRegistrationAttemptedRef = useRef(false);
-  const pendingApprovalRef = useRef<string | null>(null);
-  const pendingSlotRef = useRef<string | null>(null);
+  const qualificationRef = useRef<Record<string, QualificationEvidence>>({});
+  const pendingApprovalRef = useRef<PendingApproval | null>(null);
   const slotsRef = useRef<AppointmentSlot[]>(initialSlots.map(slot => ({...slot})));
   const auditRef = useRef<AuditEvent[]>([]);
   const stats = useMemo(() => computeStats(leads), [leads]);
@@ -122,6 +125,7 @@ export default function Home() {
   };
 
   const runLeadDemo = (leadId: string) => {
+    pendingApprovalRef.current = null; setPendingApproval(null);
     setActiveDemoLeadId(leadId); setDemoStep(0); setDemoResponse(""); setDemoRequirement(""); setDemoOpen(true);
     window.setTimeout(() => setDemoStep(1), 450);
     window.setTimeout(() => { setDemoStep(2); updateLead(leadId, "AI follow-up"); }, 900);
@@ -133,12 +137,15 @@ export default function Home() {
       notify("Enter the customer's exact response and confirmed requirement");
       return;
     }
-    recordAudit("customer_response_recorded",activeDemoLeadId,`Explicit response recorded: ${demoResponse.trim()}`);
-    updateLead(activeDemoLeadId, "Replied", "Explicit response recorded");
+    const leadId = activeDemoLeadId;
+    const evidence = {customerResponse:demoResponse.trim(),requirement:demoRequirement.trim(),recordedAt:new Date().toISOString()};
+    qualificationRef.current[leadId] = evidence;
+    recordAudit("customer_response_recorded",leadId,`Explicit response recorded: ${evidence.customerResponse}`);
+    updateLead(leadId, "Replied", "Explicit response recorded");
     setDemoStep(3);
-    window.setTimeout(() => { updateLead(activeDemoLeadId, "Qualified", "Explicit response recorded"); setDemoStep(4); recordAudit("requirement_qualified",activeDemoLeadId,demoRequirement.trim()); }, 350);
-    window.setTimeout(() => { setDemoStep(5); recordAudit("appointment_availability_checked",activeDemoLeadId,"Today at 4:00 PM is available"); }, 700);
-    window.setTimeout(() => { setDemoStep(6); pendingApprovalRef.current = activeDemoLeadId; pendingSlotRef.current = "Today at 4:00 PM"; recordAudit("appointment_prepared",activeDemoLeadId,"Today at 4:00 PM · awaiting human approval"); }, 1050);
+    window.setTimeout(() => { updateLead(leadId, "Qualified", "Explicit response recorded"); setDemoStep(4); recordAudit("requirement_qualified",leadId,evidence.requirement); }, 350);
+    window.setTimeout(() => { setDemoStep(5); recordAudit("appointment_availability_checked",leadId,"Today at 4:00 PM is available"); }, 700);
+    window.setTimeout(() => { const pending={...evidence,leadId,slotId:"slot-today-1600",slotLabel:"Today at 4:00 PM"}; pendingApprovalRef.current=pending; setPendingApproval(pending); setDemoStep(6); recordAudit("appointment_prepared",leadId,"Today at 4:00 PM · awaiting human approval"); }, 1050);
   };
 
   const runDemo = () => {
@@ -152,15 +159,30 @@ export default function Home() {
   };
 
   const approveBooking = () => {
-    const leadId = pendingApprovalRef.current;
-    if (!leadId) return;
+    const pending = pendingApprovalRef.current;
+    if (!pending) return;
+    const leadId = pending.leadId;
     const lead = leadsRef.current.find(item => item.id === leadId);
-    const slotLabel = pendingSlotRef.current;
-    slotsRef.current = slotsRef.current.map(slot => slot.label === slotLabel ? {...slot,status:"booked",leadId} : slot);
+    const evidence = qualificationRef.current[leadId];
+    const slot = slotsRef.current.find(item => item.id === pending.slotId);
+    const evidenceChanged = !evidence || evidence.customerResponse !== pending.customerResponse || evidence.requirement !== pending.requirement || evidence.recordedAt !== pending.recordedAt;
+    if (!lead || lead.status !== "Qualified" || evidenceChanged || !slot || slot.status !== "available") {
+      recordAudit("human_approval_invalidated",leadId,"Lead, qualification evidence or appointment availability changed after preparation");
+      pendingApprovalRef.current = null; setPendingApproval(null); setDemoOpen(false);
+      notify("Approval expired because the reviewed evidence or slot changed. Prepare the appointment again.");
+      return;
+    }
+    slotsRef.current = slotsRef.current.map(item => item.id === pending.slotId ? {...item,status:"booked",leadId} : item);
     updateLead(leadId, "Appointment booked");
-    recordAudit("human_approval_recorded",leadId,slotLabel ?? "Appointment approved");
-    pendingApprovalRef.current = null; pendingSlotRef.current = null; setDemoStep(7);
-    notify(`Human approved · ${lead?.name ?? "Lead"} booked today at 4:00 PM`);
+    recordAudit("human_approval_recorded",leadId,`${pending.slotLabel} · ${pending.requirement} · evidence ${pending.recordedAt}`);
+    pendingApprovalRef.current = null; setPendingApproval(null); setDemoStep(7);
+    notify(`Human approved · ${lead.name} booked ${pending.slotLabel.replace(/^Today/, "today")}`);
+  };
+
+  const declineBooking = () => {
+    const pending = pendingApprovalRef.current;
+    if (pending) recordAudit("human_approval_deferred",pending.leadId,`${pending.slotLabel} · no booking made`);
+    pendingApprovalRef.current = null; setPendingApproval(null); setDemoOpen(false);
   };
 
   useEffect(() => {
@@ -178,9 +200,9 @@ export default function Home() {
         {name:"get_unrecovered_leads", description:"List today's unrecovered Palm92 leads, ordered from highest to lowest estimated value.", inputSchema:schema(), annotations:{readOnlyHint:true}, execute:async()=>{const result=leadsRef.current.filter(l=>l.status!=="Appointment booked").sort((a,b)=>b.value-a.value);recordAudit("webmcp_get_unrecovered_leads","system",`${result.length} unrecovered leads returned`);return {as_of:new Date().toISOString(),leads:result}}},
         {name:"get_lead_details", description:"Get the live Palm92 service need, status and estimated value for one lead.", inputSchema:schema({lead_id:{type:"string",description:"The exact Palm92 lead ID."}},["lead_id"]), annotations:{readOnlyHint:true}, execute:async({lead_id}:{lead_id:string})=>{const lead=leadById(lead_id)??null;recordAudit("webmcp_get_lead_details",lead_id,lead?"Lead details returned":"Lead not found");return {lead}}},
         {name:"prepare_follow_up", description:"Prepare, but never send, a personalised follow-up draft from the current Palm92 lead record.", inputSchema:schema({lead_id:{type:"string",description:"The exact Palm92 lead ID."}},["lead_id"]), annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}, execute:async({lead_id}:{lead_id:string})=>{const lead=leadById(lead_id);recordAudit("webmcp_prepare_follow_up",lead_id,lead?"Follow-up draft prepared; nothing sent":"Lead not found");return lead?{lead_id,draft:`Hi ${lead.name.split(" ")[0]}, sorry we missed your call about ${lead.service.toLowerCase()}. We can help today. Would 4:00 PM work for you?`,sent:false,requires_human_review:true,data_source:"current_page_state"}:{error:"Lead not found"}}},
-        {name:"recover_lead", description:"Record an explicitly supplied customer response and qualification requirement in Palm92. This does not send a message or book an appointment.", inputSchema:schema({lead_id:{type:"string",description:"The exact lead ID returned by get_unrecovered_leads."},customer_response:{type:"string",description:"The customer response supplied by the user or an authorised connected channel. Never infer or invent it."},requirement:{type:"string",description:"The confirmed service requirement stated by the customer."}},["lead_id","customer_response","requirement"]), annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}, execute:async({lead_id,customer_response,requirement}:{lead_id:string;customer_response:string;requirement:string})=>{const lead=leadById(lead_id);if(!lead){recordAudit("webmcp_recovery",lead_id,"Lead not found");return {error:"Lead not found"}}if(!customer_response?.trim()||!requirement?.trim()){recordAudit("webmcp_recovery",lead_id,"Explicit response and requirement required");return {error:"customer_response and requirement must be explicitly supplied; Palm92 will not invent them"}}const updated=leadsRef.current.map(l=>l.id===lead_id?{...l,status:"Qualified",source:"Response recorded"}:l);leadsRef.current=updated;setLeads(updated);recordAudit("webmcp_recovery",lead_id,`Response recorded and requirement qualified: ${requirement.trim()}`);return {lead_id,response_recorded:true,qualified:true,requirement:requirement.trim(),customer_response:customer_response.trim(),estimated_value:lead.value,message_sent_by_tool:false,next_step:"Find an available appointment, then prepare it for human approval."}}},
+        {name:"recover_lead", description:"Record an explicitly supplied customer response and qualification requirement in Palm92. This does not send a message or book an appointment.", inputSchema:schema({lead_id:{type:"string",description:"The exact lead ID returned by get_unrecovered_leads."},customer_response:{type:"string",description:"The customer response supplied by the user or an authorised connected channel. Never infer or invent it."},requirement:{type:"string",description:"The confirmed service requirement stated by the customer."}},["lead_id","customer_response","requirement"]), annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}, execute:async({lead_id,customer_response,requirement}:{lead_id:string;customer_response:string;requirement:string})=>{const lead=leadById(lead_id);if(!lead){recordAudit("webmcp_recovery",lead_id,"Lead not found");return {error:"Lead not found"}}if(!customer_response?.trim()||!requirement?.trim()){recordAudit("webmcp_recovery",lead_id,"Explicit response and requirement required");return {error:"customer_response and requirement must be explicitly supplied; Palm92 will not invent them"}}const evidence={customerResponse:customer_response.trim(),requirement:requirement.trim(),recordedAt:new Date().toISOString()};qualificationRef.current[lead_id]=evidence;const updated=leadsRef.current.map(l=>l.id===lead_id?{...l,status:"Qualified",source:"Response recorded"}:l);leadsRef.current=updated;setLeads(updated);recordAudit("webmcp_recovery",lead_id,`Response recorded and requirement qualified: ${evidence.requirement}`);return {lead_id,response_recorded:true,qualified:true,requirement:evidence.requirement,customer_response:evidence.customerResponse,evidence_recorded_at:evidence.recordedAt,estimated_value:lead.value,message_sent_by_tool:false,next_step:"Find an available appointment, then prepare it for human approval."}}},
         {name:"find_available_appointments", description:"Read live available Palm92 appointment slots without booking one.", inputSchema:schema({lead_id:{type:"string",description:"The exact Palm92 lead ID."}},["lead_id"]), annotations:{readOnlyHint:true}, execute:async({lead_id}:{lead_id:string})=>{const slots=slotsRef.current.filter(slot=>slot.status==="available").map(({id,label})=>({id,label}));recordAudit("webmcp_find_available_appointments",lead_id,`${slots.length} available slots returned`);return {lead_id,slots,booking_requires_human_confirmation:true}}},
-        {name:"prepare_appointment", description:"Prepare an available appointment for mandatory human approval. This tool cannot confirm or book the appointment.", inputSchema:schema({lead_id:{type:"string",description:"The exact Palm92 lead ID."},slot:{type:"string",description:"The slot ID or label returned by find_available_appointments."}},["lead_id","slot"]), annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}, execute:async({lead_id,slot}:{lead_id:string;slot:string})=>{const lead=leadById(lead_id);if(!lead){recordAudit("webmcp_appointment_prepared",lead_id,"Lead not found");return {error:"Lead not found"}}if(lead.status!=="Qualified"){recordAudit("webmcp_appointment_prepared",lead_id,"Blocked: lead is not qualified");return {error:"Lead must have an explicitly recorded response and be qualified before an appointment can be prepared"}}const available=slotsRef.current.find(item=>(item.id===slot||item.label===slot)&&item.status==="available");if(!available){recordAudit("webmcp_appointment_prepared",lead_id,"Appointment slot unavailable");return {error:"Appointment slot is not available"}}pendingApprovalRef.current=lead_id;pendingSlotRef.current=available.label;setActiveDemoLeadId(lead_id);setDemoOpen(true);setDemoStep(6);recordAudit("webmcp_appointment_prepared",lead_id,`${available.label} · awaiting human approval`);return {status:"awaiting_human_approval",booking_confirmed:false,lead_id,customer:lead.name,slot_id:available.id,slot:available.label,estimated_value:lead.value,human_confirmation_required:true,instruction:"STOP and ask the user for approval. Final booking requires the Palm92 human approval button."}}},
+        {name:"prepare_appointment", description:"Prepare an available appointment for mandatory human approval. This tool cannot confirm or book the appointment.", inputSchema:schema({lead_id:{type:"string",description:"The exact Palm92 lead ID."},slot:{type:"string",description:"The slot ID or label returned by find_available_appointments."}},["lead_id","slot"]), annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}, execute:async({lead_id,slot}:{lead_id:string;slot:string})=>{const lead=leadById(lead_id);if(!lead){recordAudit("webmcp_appointment_prepared",lead_id,"Lead not found");return {error:"Lead not found"}}const evidence=qualificationRef.current[lead_id];if(lead.status!=="Qualified"||!evidence){recordAudit("webmcp_appointment_prepared",lead_id,"Blocked: qualification evidence is missing");return {error:"Lead must have an explicitly recorded response and be qualified before an appointment can be prepared"}}const available=slotsRef.current.find(item=>(item.id===slot||item.label===slot)&&item.status==="available");if(!available){recordAudit("webmcp_appointment_prepared",lead_id,"Appointment slot unavailable");return {error:"Appointment slot is not available"}}const pending={...evidence,leadId:lead_id,slotId:available.id,slotLabel:available.label};pendingApprovalRef.current=pending;setPendingApproval(pending);setActiveDemoLeadId(lead_id);setDemoOpen(true);setDemoStep(6);recordAudit("webmcp_appointment_prepared",lead_id,`${available.label} · ${evidence.requirement} · awaiting human approval`);return {status:"awaiting_human_approval",booking_confirmed:false,lead_id,customer:lead.name,slot_id:available.id,slot:available.label,customer_response:evidence.customerResponse,requirement:evidence.requirement,evidence_recorded_at:evidence.recordedAt,estimated_value:lead.value,human_confirmation_required:true,instruction:"STOP and ask the user for approval. Final booking requires the Palm92 human approval button."}}},
         {name:"get_recovery_summary", description:"Read live recovery totals, lead statuses and the Palm92 session audit trail.", inputSchema:schema(), annotations:{readOnlyHint:true}, execute:async()=>{recordAudit("webmcp_get_recovery_summary","system","Recovery summary and audit trail returned");return {...computeStats(leadsRef.current),leads:leadsRef.current.map(({id,name,status,value})=>({id,name,status,value})),audit_trail:auditRef.current}}},
       ];
       for (const tool of tools) {
@@ -261,7 +283,7 @@ export default function Home() {
         [5,"Availability checked","Today at 4:00 PM is available"],
         [6,"Appointment prepared","Human approval required before booking"],
         [7,"Appointment confirmed","Lead, funnel and recovered revenue updated"],
-      ].map(([step,title,detail]) => <div className={`demo-step ${demoStep >= Number(step) ? "done" : ""}`} key={step}><div>{demoStep >= Number(step) ? <Check size={16}/> : step}</div><span><strong>{title}</strong><small>{detail}</small></span>{demoStep < Number(step) && Number(step) < 7 && <i/>}</div>)}</div>{demoStep === 2 ? <div className="response-box"><strong>Record the customer’s exact response</strong><span>This competition demo requires explicit evidence before qualification.</span><label>Customer response<textarea value={demoResponse} onChange={event=>setDemoResponse(event.target.value)} placeholder="Example: Yes, I would like to continue with the kitchen quote."/></label><label>Confirmed requirement<input value={demoRequirement} onChange={event=>setDemoRequirement(event.target.value)} placeholder="Example: Kitchen quote"/></label><button className="primary full" onClick={recordDemoResponse}>Record response and continue <ArrowRight size={17}/></button></div> : demoStep === 6 ? <div className="approval-box"><strong>{activeDemoLead.name} wants an appointment today at 4:00 PM.</strong><span>The sample slot is available and the estimated opportunity value is £{activeDemoLead.value.toLocaleString("en-GB")}. Shall I confirm the demonstration booking?</span><button className="primary full" onClick={approveBooking}>Yes, approve demo booking <ArrowRight size={17}/></button><button className="decline" onClick={() => setDemoOpen(false)}>Not yet</button></div> : demoStep === 7 ? <button className="primary full" onClick={() => setDemoOpen(false)}>Return to updated dashboard <ArrowRight size={17}/></button> : <div className="thinking"><i/><span>PALM 92 AI is inspecting {activeDemoLead.name.split(" ")[0]}...</span></div>}</div></div>}
+      ].map(([step,title,detail]) => <div className={`demo-step ${demoStep >= Number(step) ? "done" : ""}`} key={step}><div>{demoStep >= Number(step) ? <Check size={16}/> : step}</div><span><strong>{title}</strong><small>{detail}</small></span>{demoStep < Number(step) && Number(step) < 7 && <i/>}</div>)}</div>{demoStep === 2 ? <div className="response-box"><strong>Record the customer’s exact response</strong><span>This competition demo requires explicit evidence before qualification.</span><label>Customer response<textarea value={demoResponse} onChange={event=>setDemoResponse(event.target.value)} placeholder="Example: Yes, I would like to continue with the kitchen quote."/></label><label>Confirmed requirement<input value={demoRequirement} onChange={event=>setDemoRequirement(event.target.value)} placeholder="Example: Kitchen quote"/></label><button className="primary full" onClick={recordDemoResponse}>Record response and continue <ArrowRight size={17}/></button></div> : demoStep === 6 && pendingApproval ? <div className="approval-box"><strong>{activeDemoLead.name} wants an appointment {pendingApproval.slotLabel.toLowerCase()}.</strong><span><b>Recorded response:</b> “{pendingApproval.customerResponse}”</span><span><b>Confirmed requirement:</b> {pendingApproval.requirement}</span><span>The sample slot is available and the estimated opportunity value is £{activeDemoLead.value.toLocaleString("en-GB")}. Shall I confirm the demonstration booking?</span><button className="primary full" onClick={approveBooking}>Yes, approve demo booking <ArrowRight size={17}/></button><button className="decline" onClick={declineBooking}>Not yet</button></div> : demoStep === 7 ? <button className="primary full" onClick={() => setDemoOpen(false)}>Return to updated dashboard <ArrowRight size={17}/></button> : <div className="thinking"><i/><span>PALM 92 AI is inspecting {activeDemoLead.name.split(" ")[0]}...</span></div>}</div></div>}
       {toast && <div className="toast"><CheckCircle2 size={19}/>{toast}</div>}
     </main>
   );
