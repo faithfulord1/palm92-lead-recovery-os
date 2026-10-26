@@ -26,6 +26,8 @@ The page registers seven tools:
 
 The tools share the same in-browser state as the human-facing dashboard. Inputs use narrow JSON schemas, effects are described with annotations, and appointment booking cannot be completed by a WebMCP tool. The final booking requires the visible Palm92 human approval control.
 
+That approval is bound to the exact customer response, confirmed requirement, lead and slot displayed to the reviewer. If any of that evidence changes after preparation, Palm92 expires the approval instead of booking against stale evidence.
+
 ## Data and capability disclosure
 
 This competition build uses a clearly identified fictional demonstration dataset, including the Daniel Reed kitchen-quote scenario. All customer names, telephone numbers and records are fictional; telephone numbers use the unmistakable `07XXX XXXXXX` placeholder. It does not claim to send a real SMS, contact a customer, update an external CRM or book an external calendar. `prepare_follow_up` only drafts text. A customer response and requirement must be supplied explicitly before a lead can be qualified. `prepare_appointment` only creates an approval request.
