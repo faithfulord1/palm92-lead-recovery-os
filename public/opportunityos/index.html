@@ -74,8 +74,8 @@ function seeded(){return demo.map((item,i)=>normalise({...item,id:`fiction-${i+1
 function stored(){try{return localStorage.getItem(STORE)}catch{return null}}
 function read(){try{const raw=stored();if(raw){const arr=JSON.parse(raw);if(Array.isArray(arr))return arr.map(normalise).filter(l=>l.message)}}catch(e){console.warn('Saved data unavailable',e)}return seeded()}
 let leads=read(), view='dashboard',selected=leads[0]?.id||null,query='',laneFilter='',sourceFilter='';
-function save(){try{localStorage.setItem(STORE,JSON.stringify(leads))}catch(e){flash('Local storage is full or blocked. Export a backup.')}}
-if(!stored())save();
+function save(silent=false){try{localStorage.setItem(STORE,JSON.stringify(leads))}catch(e){if(!silent)flash('Local storage is full or blocked. Export a backup.')}}
+if(!stored())save(true);
 function log(l,action){l.audit.push({at:new Date().toISOString(),action});if(l.audit.length>100)l.audit.shift()}
 function flash(msg){const n=$('notice');n.textContent=msg;n.classList.add('show');clearTimeout(flash.timer);flash.timer=setTimeout(()=>n.classList.remove('show'),3500)}
 function goto(v){if(!['dashboard','inbox','pipeline','approvals','reports','settings'].includes(v))return;view=v;document.querySelectorAll('.view').forEach(el=>el.classList.toggle('hidden',el.id!==`view-${v}`));document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.view===v));const titles={dashboard:['Overview','From engagement to accountable business growth.'],inbox:['Enquiries','Find the opportunities hidden in your conversations.'],pipeline:['Sales pipeline','Track real progress, not vanity metrics.'],approvals:['Approval queue','Nothing gets sent without your decision.'],reports:['Reports','Measure conversations, not impressions.'],settings:['Data & privacy','Own your workflow and keep control of your records.']};$('pageTitle').textContent=titles[v][0];$('pageSubtitle').textContent=titles[v][1];render();window.scrollTo(0,0)}
